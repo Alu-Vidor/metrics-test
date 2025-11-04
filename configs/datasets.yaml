@@ -1,0 +1,15 @@
+electricity:
+  frequency: H
+  horizon: 24
+  window: 96
+  target: load
+  static_features:
+    - region
+  known_future_features:
+    - hour_of_day
+    - day_of_week
+  normalization:
+    method: zscore
+    params:
+      mean: 0.0
+      std: 1.0

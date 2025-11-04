@@ -1,0 +1,48 @@
+seed: 42
+horizon: 24
+window: 96
+base_metric: pinball_tau_50
+lambda: 0.1
+budget:
+  target_latency_ms: 50
+scenario_weights:
+  clean: 0.4
+  noise_0.1: 0.2
+  shift_0.05: 0.2
+  phase_0.1: 0.2
+component_weights:
+  alpha: 0.4
+  beta: 0.3
+  gamma: 0.3
+datasets:
+  - name: electricity
+    path: data/electricity.parquet
+    config: datasets.yaml::electricity
+models:
+  - name: lstm
+    module: src.models.lstm
+    params:
+      hidden_size: 64
+      num_layers: 2
+      dropout: 0.1
+  - name: transformer
+    module: src.models.transformer
+    params:
+      d_model: 128
+      nhead: 4
+      num_layers: 2
+      dropout: 0.1
+scenarios:
+  - type: clean
+  - type: noise
+    sigma: 0.1
+  - type: shift
+    delta: 0.05
+  - type: phase
+    phi: 0.1
+normalization:
+  accuracy: minmax
+  structure: minmax
+  robustness: minmax
+weight_search:
+  grid_step: 0.05
