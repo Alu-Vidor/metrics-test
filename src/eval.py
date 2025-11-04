@@ -18,17 +18,28 @@ def evaluate(
 ) -> Dict[str, Dict[str, float]]:
     """Evaluate a trained model on the provided scenarios."""
 
-    results: Dict[str, Dict[str, float]] = {}
+    if not hasattr(model, "predict"):
+        raise AttributeError("Model must implement a predict method")
+
+    y_true = test_data.targets
+    predictions: Dict[str, Any] = {}
+    transformed_inputs: Dict[str, Any] = {}
     for scenario_name, scenario in scenarios.items():
-        transformed_inputs = scenario.apply(test_data.inputs)
-        y_true = test_data.targets
-        if not hasattr(model, "predict"):
-            raise AttributeError("Model must implement a predict method")
-        y_hat = model.predict(transformed_inputs)
+        transformed = scenario.apply(test_data.inputs)
+        transformed_inputs[scenario_name] = transformed
+        predictions[scenario_name] = model.predict(transformed)
+
+    results: Dict[str, Dict[str, float]] = {}
+    for scenario_name in scenarios:
+        y_hat = predictions[scenario_name]
 
         acc_raw = metric_fns["accuracy"](y_hat, y_true)
         struct_raw = metric_fns["structure"](y_hat, y_true)
-        rob_raw = metric_fns["robustness"](y_hat, y_true)
+        rob_raw = metric_fns["robustness"](
+            scenario_name=scenario_name,
+            predictions_by_scenario=predictions,
+            y_true=y_true,
+        )
 
         acc = float(normalize([acc_raw], normalizers["accuracy"])[0])
         struct = float(normalize([struct_raw], normalizers["structure"])[0])
@@ -36,7 +47,7 @@ def evaluate(
 
         cost_val = None
         if "cost" in metric_fns:
-            cost_val = metric_fns["cost"](model, transformed_inputs)
+            cost_val = metric_fns["cost"](model=model, inputs=transformed_inputs[scenario_name])
 
         comp_score = composite(
             acc,

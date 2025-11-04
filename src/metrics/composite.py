@@ -41,5 +41,5 @@ def composite(m_acc: float, m_struct: float, m_rob: float, alpha: float, beta: f
         raise ValueError("Weights must sum to 1")
     score = alpha * m_acc + beta * m_struct + gamma * m_rob
     if cost is not None and lam != 0.0:
-        score += lam * cost
+        score -= lam * cost
     return float(score)
