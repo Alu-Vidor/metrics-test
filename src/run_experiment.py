@@ -32,15 +32,56 @@ def _load_yaml(path: Path) -> Dict[str, Any]:
         return yaml.safe_load(f)
 
 
-def _load_dataset_passport(reference: str) -> Dict[str, Any]:
+def _load_dataset_passport(reference: str, *, base_path: Path | None = None) -> Dict[str, Any]:
     if "::" in reference:
         cfg_path, key = reference.split("::", 1)
     else:
         cfg_path, key = reference, "default"
-    data = _load_yaml(Path(cfg_path))
+    cfg_path_obj = Path(cfg_path)
+    candidate_paths = []
+    if base_path is not None and not cfg_path_obj.is_absolute():
+        candidate_paths.append((base_path / cfg_path_obj).resolve())
+    candidate_paths.append(cfg_path_obj.resolve() if cfg_path_obj.is_absolute() else cfg_path_obj)
+    if not cfg_path_obj.is_absolute():
+        candidate_paths.append((Path(__file__).resolve().parent / cfg_path_obj).resolve())
+        candidate_paths.append((Path.cwd() / cfg_path_obj).resolve())
+
+    seen = set()
+    resolved_path = None
+    for candidate in candidate_paths:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if candidate.exists():
+            resolved_path = candidate
+            break
+
+    if resolved_path is None:
+        searched = ", ".join(str(path) for path in seen)
+        raise FileNotFoundError(f"Dataset passport file '{cfg_path}' not found. Searched: {searched}")
+
+    data = _load_yaml(resolved_path)
     if key not in data:
-        raise KeyError(f"Dataset passport '{key}' not found in {cfg_path}")
+        raise KeyError(f"Dataset passport '{key}' not found in {resolved_path}")
     return data[key]
+
+
+def _minimum_series_length(window: int, horizon: int) -> int:
+    """Compute minimal total length so each split can produce windows."""
+    min_segment = window + horizon
+    if min_segment <= 0:
+        raise ValueError("Window and horizon must be positive")
+
+    total = max(min_segment, 1)
+    while True:
+        t1 = int(0.6 * total)
+        t2 = int(0.8 * total)
+        train_len = t1
+        val_len = t2 - t1
+        test_len = total - t2
+        if min(train_len, val_len, test_len) >= min_segment:
+            return total
+        total += 1
 
 
 def _generate_synthetic_series(length: int, seed: int = 42) -> np.ndarray:
@@ -75,10 +116,29 @@ def _load_timeseries(dataset_cfg: Mapping[str, Any], fallback_length: int = 500)
 
 def _instantiate_model(module_path: str, model_name: str, params: Mapping[str, Any]) -> Any:
     module = importlib.import_module(module_path)
-    class_name = "".join(part.capitalize() for part in model_name.split("_")) + "Model"
-    if not hasattr(module, class_name):
-        raise AttributeError(f"Module '{module_path}' does not provide '{class_name}'")
-    cls = getattr(module, class_name)
+    parts = model_name.split("_")
+    candidates = []
+    camel = "".join(part.capitalize() for part in parts)
+    if camel:
+        candidates.append(f"{camel}Model")
+    acronym = "".join(part.upper() for part in parts)
+    if acronym and f"{acronym}Model" not in candidates:
+        candidates.append(f"{acronym}Model")
+    if camel and camel not in candidates:
+        candidates.append(camel)
+    if acronym and acronym not in candidates:
+        candidates.append(acronym)
+    candidates.append(model_name)
+
+    cls = None
+    for name in candidates:
+        if hasattr(module, name):
+            cls = getattr(module, name)
+            break
+
+    if cls is None:
+        expected = ", ".join(candidates)
+        raise AttributeError(f"Module '{module_path}' does not provide any of: {expected}")
     return cls(**params)
 
 
@@ -204,12 +264,18 @@ def run_experiment(config_path: Path) -> None:
         dataset_name = dataset_cfg.get("name", "dataset")
         passport_ref = dataset_cfg.get("config")
         if passport_ref:
-            passport = _load_dataset_passport(passport_ref)
+            passport = _load_dataset_passport(passport_ref, base_path=config_path.parent)
             dataset_cfg.setdefault("target", passport.get("target"))
             horizon = passport.get("horizon", horizon)
             window = passport.get("window", window)
 
-        series = _load_timeseries(dataset_cfg)
+        min_total_length = _minimum_series_length(window, horizon)
+        series = _load_timeseries(dataset_cfg, fallback_length=max(500, min_total_length))
+        if len(series.indices) < min_total_length:
+            raise ValueError(
+                f"Dataset '{dataset_name}' has length {len(series.indices)}, "
+                f"but at least {min_total_length} points are required for window={window}, horizon={horizon}."
+            )
         total = len(series.indices)
         t1 = int(0.6 * total)
         t2 = int(0.8 * total)

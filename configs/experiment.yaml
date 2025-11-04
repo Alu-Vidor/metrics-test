@@ -18,6 +18,9 @@ datasets:
   - name: electricity
     path: data/electricity.parquet
     config: datasets.yaml::electricity
+  - name: complex_synth
+    path: data/complex_synth.csv
+    config: datasets.yaml::complex_synth
 models:
   - name: lstm
     module: src.models.lstm

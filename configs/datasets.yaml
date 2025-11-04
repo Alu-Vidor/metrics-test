@@ -13,3 +13,19 @@ electricity:
     params:
       mean: 0.0
       std: 1.0
+
+complex_synth:
+  frequency: H
+  horizon: 48
+  window: 168
+  target: load
+  static_features:
+    - holiday
+  known_future_features:
+    - hour_of_day
+    - day_of_week
+  normalization:
+    method: robust
+    params:
+      median: 0.0
+      iqr: 1.0
